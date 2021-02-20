@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+
+# Exit when any command fails.
+set -e
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+printf '[*] Create working directory at .pomtificate if necessary\n\n'
+if [[ ! -d .pomtificate ]]; then
+  mkdir .pomtificate
+fi
+
+# Backup existing pom.xml
+if [[ -e pom.xml ]]; then
+  timestamp=$(date +"%Y-%m-%dT%H-%M-%S")
+  printf "[*] Backing up exing pom.xml to pom.xml.$timestamp\n\n"
+  mv pom.xml "pom.xml.$timestamp"
+fi
+
+# Add dependency tree plugin to project/plugins.sbt
+printf '[*] Adding sbt-dependency-graph to project/plugins.sbt as necessary\n\n'
+additionalDependency='addSbtPlugin("net.virtual-void" % "sbt-dependency-graph" % "0.10.0-RC1")'
+grep "sbt-dependency-graph" project/plugins.sbt > /dev/null \
+  || (echo -e "\n$additionalDependency" >> project/plugins.sbt) \
+      && dependencyAdded=1 # dependencyAdded is a flag used for cleaning up
+
+# Create the base pom.xml file
+printf '[*] Using "sbt makePom" to generate a basic pom.xml file\n\n'
+#sbt makePom > /dev/null
+sbt clean makePom
+cp target/*/*.pom pom.xml > /dev/null
+
+# Add java version to pom.xml
+# Note: also forces the project to use jUnit as test runner.
+printf '[*] Updating pom.xml to use Java 1.8, and jUnit as test runner, by inserting the <build> section just before </project>\n\n'
+# Note: for the sed command below, if on macOS, a pair of empty single quotes might need to be passed to the -i like so "sed -i '' ..."
+sed -i'' -E -e '/<\/project>/ i\
+\    <build>\
+\        <plugins>\
+\            <plugin>\
+\                <groupId>org.apache.maven.plugins</groupId>\
+\                <artifactId>maven-compiler-plugin</artifactId>\
+\                <version>3.8.1</version>\
+\                <configuration>\
+\                    <source>1.8</source>\
+\                    <target>1.8</target>\
+\                </configuration>\
+\            </plugin>\
+\            <plugin>\
+\                <groupId>org.apache.maven.plugins</groupId>\
+\                <artifactId>maven-surefire-plugin</artifactId>\
+\                <version>3.0.0-M5</version>\
+\                <dependencies>\
+\                <dependency>\
+\                    <groupId>org.apache.maven.surefire</groupId>\
+\                    <artifactId>surefire-junit47</artifactId>\
+\                    <version>3.0.0-M5</version>\
+\                </dependency>\
+\                </dependencies>\
+\            </plugin>\
+\        </plugins>\
+\    </build>' pom.xml
+
+# Point to the correct source directory
+if [[ -e app ]]; then
+  printf '[*] Updating pom.xml to use "app" and "test" as the source directories, and "resources" as the resource directory\n\n'
+  sed -i'' -E -e '/<build>/ a\
+\    <sourceDirectory>app</sourceDirectory>\
+\    <testSourceDirectory>test</testSourceDirectory>\
+\    <resources>\
+\        <resource>\
+\            <directory>resources</directory>\
+\        </resource>\
+\    </resources>\
+\    <testResources>\
+\        <testResource>\
+\            <directory>test/resources</directory>\
+\        </testResource>\
+\    </testResources>' pom.xml
+fi
+
+# TODO: Only add <type>pom</type> if the powermock is not in <exclusion> tag.
+# Edge case: Check if powermock is there, add the necessary "type" xml tag
+# Note: the link backslack after "a" is required only for macOS's sed.
+# Note: the additional "''" after "-i" is required only for macOS's sed.
+printf '[*] Updating pom.xml to change the type of dependency powermock-mockito-release-full to "pom" if necessary\n\n'
+sed -i'' -E -e '/powermock-mockito-release-full/ a\
+\  <type>pom</type>' pom.xml
+
+# Generate the dependency trees
+# TODO: Generate test and compile dependencies separately; Use flat output format.
+#sbt dependencyTree --no-colors --batch > dtree-sbt.txt
+#mvn dependency:tree > dtree-mvn.txt
+
+printf '[*] Generating lists of compile and test dependencies based on build.sbt\n\n'
+#sbt "test:dependencyList::toFile .pomtificate/dlist-test-sbt.txt" > /dev/null
+#sbt "compile:dependencyList::toFile .pomtificate/dlist-compile-sbt.txt" > /dev/null
+sbt "test:dependencyList::toFile .pomtificate/dlist-test-sbt.txt"
+sbt "compile:dependencyList::toFile .pomtificate/dlist-compile-sbt.txt"
+# Generate a list of test-only dependencies using:
+# diff --old-line-format="" --unchanged-line-format="" .pomtificate/dlist-{compile,test}-sbt.txt
+# (because the dlist-test-sbt includes compile dependencies, and when we
+# auto-add test dependencies to pom.xml, we want to exclude those.
+
+printf '[*] Generating lists of compile and test dependencies based on pom.xml\n\n'
+#mvn dependency:tree -DoutputFile=.pomtificate/dlist-mvn.txt > /dev/null
+mvn dependency:tree -DoutputFile=.pomtificate/dlist-mvn.txt
+sed -i'' -E -e "s/^[-+|\\ ]*//g" .pomtificate/dlist-mvn.txt # Trim leading nonsense characters
+sed -i'' -E -e "s/:jar//" .pomtificate/dlist-mvn.txt # Remove unnecessary field from csv (delimiter by colon)
+sed -i'' -E -e "s/:sources//" .pomtificate/dlist-mvn.txt # Remove unnecessary field from csv (delimiter by colon)
+
+# Perhaps an alternative conflict resolution is to append sbt dependencies to
+# the mvn dependencies, and parse the whole list.
+
+if command -v python3 > /dev/null
+then
+  # Find missing dependencies and same to a new file
+  # TODO: insert the dependencies to pom.xml directly
+  printf '[*] Comparing the lists of dependencies to see what must be added to pom.xml\n\n'
+  python3 $DIR/scripts/conflict_finder.py \
+    .pomtificate/dlist-test-sbt.txt .pomtificate/dlist-mvn.txt \
+    .pomtificate/new-test-dependencies.xml test > /dev/null
+  python3 $DIR/scripts/conflict_finder.py \
+    .pomtificate/dlist-compile-sbt.txt .pomtificate/dlist-mvn.txt \
+    .pomtificate/new-compile-dependencies.xml compile > /dev/null
+fi
+
+# Download sources of dependency so we can jump to source code in
+# dependencies too.
+mvn dependency:sources
+
+# Tidy the various generated files if the tidy command is available.
+if command -v tidy > /dev/null
+then
+  tidy -quiet -xml -indent -modify .pomtificate/new-test-dependencies.xml
+  tidy -quiet -xml -indent -modify .pomtificate/new-compile-dependencies.xml
+  tidy -quiet -xml -indent -modify pom.xml
+fi
+
+# TODO: resolve the duplicated dependencies in pom.xml
+
+# Clean up
+if [[ -n dependencyAdded ]]; then
+  printf '[*] Removing sbt-dependency-graph plugin added earlier\n\n'
+  sed -i'' -E -e '$d' project/plugins.sbt
+fi
+
