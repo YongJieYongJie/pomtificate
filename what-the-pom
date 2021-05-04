@@ -95,8 +95,8 @@ sed -i '.bak' -E -e '/powermock-mockito-release-full/ a\
 printf '[*] Generating lists of compile and test dependencies based on build.sbt\n\n'
 #sbt "test:dependencyList::toFile .pomtificate/dlist-test-sbt.txt" > /dev/null
 #sbt "compile:dependencyList::toFile .pomtificate/dlist-compile-sbt.txt" > /dev/null
-sbt "test:dependencyList::toFile .pomtificate/dlist-test-sbt.txt"
-sbt "compile:dependencyList::toFile .pomtificate/dlist-compile-sbt.txt"
+sbt "test:dependencyList::toFile .pomtificate/dlist-test-sbt.txt -f"
+sbt "compile:dependencyList::toFile .pomtificate/dlist-compile-sbt.txt -f"
 # Generate a list of test-only dependencies using:
 # diff --old-line-format="" --unchanged-line-format="" .pomtificate/dlist-{compile,test}-sbt.txt
 # (because the dlist-test-sbt includes compile dependencies, and when we
