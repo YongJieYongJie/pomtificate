@@ -34,7 +34,7 @@ cp target/*/*.pom pom.xml > /dev/null
 # Note: also forces the project to use jUnit as test runner.
 printf '[*] Updating pom.xml to use Java 1.8, and jUnit as test runner, by inserting the <build> section just before </project>\n\n'
 # Note: for the sed command below, if on macOS, a pair of empty single quotes might need to be passed to the -i like so "sed -i '' ..."
-sed -i'' -E -e '/<\/project>/ i\
+sed -i '.bak' -E -e '/<\/project>/ i\
 \    <build>\
 \        <plugins>\
 \            <plugin>\
@@ -64,7 +64,7 @@ sed -i'' -E -e '/<\/project>/ i\
 # Point to the correct source directory
 if [[ -e app ]]; then
   printf '[*] Updating pom.xml to use "app" and "test" as the source directories, and "resources" as the resource directory\n\n'
-  sed -i'' -E -e '/<build>/ a\
+  sed -i '.bak' -E -e '/<build>/ a\
 \    <sourceDirectory>app</sourceDirectory>\
 \    <testSourceDirectory>test</testSourceDirectory>\
 \    <resources>\
@@ -84,7 +84,7 @@ fi
 # Note: the link backslack after "a" is required only for macOS's sed.
 # Note: the additional "''" after "-i" is required only for macOS's sed.
 printf '[*] Updating pom.xml to change the type of dependency powermock-mockito-release-full to "pom" if necessary\n\n'
-sed -i'' -E -e '/powermock-mockito-release-full/ a\
+sed -i '.bak' -E -e '/powermock-mockito-release-full/ a\
 \  <type>pom</type>' pom.xml
 
 # Generate the dependency trees
@@ -105,9 +105,9 @@ sbt "compile:dependencyList::toFile .pomtificate/dlist-compile-sbt.txt"
 printf '[*] Generating lists of compile and test dependencies based on pom.xml\n\n'
 #mvn dependency:tree -DoutputFile=.pomtificate/dlist-mvn.txt > /dev/null
 mvn dependency:tree -DoutputFile=.pomtificate/dlist-mvn.txt
-sed -i'' -E -e "s/^[-+|\\ ]*//g" .pomtificate/dlist-mvn.txt # Trim leading nonsense characters
-sed -i'' -E -e "s/:jar//" .pomtificate/dlist-mvn.txt # Remove unnecessary field from csv (delimiter by colon)
-sed -i'' -E -e "s/:sources//" .pomtificate/dlist-mvn.txt # Remove unnecessary field from csv (delimiter by colon)
+sed -i '.bak' -E -e "s/^[-+|\\ ]*//g" .pomtificate/dlist-mvn.txt # Trim leading nonsense characters
+sed -i '.bak' -E -e "s/:jar//" .pomtificate/dlist-mvn.txt # Remove unnecessary field from csv (delimiter by colon)
+sed -i '.bak' -E -e "s/:sources//" .pomtificate/dlist-mvn.txt # Remove unnecessary field from csv (delimiter by colon)
 
 # Perhaps an alternative conflict resolution is to append sbt dependencies to
 # the mvn dependencies, and parse the whole list.
@@ -142,6 +142,6 @@ fi
 # Clean up
 if [[ -n dependencyAdded ]]; then
   printf '[*] Removing sbt-dependency-graph plugin added earlier\n\n'
-  sed -i'' -E -e '$d' project/plugins.sbt
+  sed -i '.bak' -E -e '$d' project/plugins.sbt
 fi
 
